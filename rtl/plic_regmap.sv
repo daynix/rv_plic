@@ -1,3 +1,8 @@
+
+`define VER_RTL  32'h0000_1_000
+`define NEXT_VER_RTL  32`h0000_1_001
+`define EXT_INTRPT_TIMER 15
+
 // Do not edit - auto-generated
 module plic_regs (
   input logic [30:0][2:0] prio_i,
@@ -18,6 +23,23 @@ module plic_regs (
   output logic [1:0][4:0] cc_o,
   output logic [1:0] cc_we_o,
   output logic [1:0] cc_re_o,
+
+  input logic 	[31:0] tim_val_i,
+  output logic 	[31:0] tim_val_o,
+  output logic		tim_val_we_o,
+  output logic 	 tim_val_re_o,
+  input logic 	[31:0] ctrl_i,
+  output logic 	[31:0] ctrl_o,
+  output logic		ctrl_we_o,
+  output logic 	 ctrl_re_o,
+  output logic 	 ver_reg_re_o,
+  input logic 	[31:0] tim_stat_i,
+  output logic 	[31:0] tim_stat_o,
+  output logic		tim_stat_we_o,
+  output logic 	 tim_stat_re_o,
+
+
+
   // Bus Interface
   input  reg_intf::reg_intf_req_a32_d32 req_i,
   output reg_intf::reg_intf_resp_d32    resp_o
@@ -38,6 +60,21 @@ always_comb begin
   cc_o = '0;
   cc_we_o = '0;
   cc_re_o = '0;
+
+  // ext_intrpt_tim_reg signals
+
+  tim_val_o = 'hffff_ffff;
+  tim_val_we_o = '0;
+  tim_val_re_o = '0;
+  ctrl_o = 'b0; // en =1 sel = 1 edge = 0 start=1
+  ctrl_we_o = '0;
+  ctrl_re_o = '0;
+  tim_stat_o = '0;
+  tim_stat_we_o = '0;
+  tim_stat_re_o = '0;
+  ver_reg_re_o = 1'b0;
+
+
   if (req_i.valid) begin
     if (req_i.write) begin
       unique case(req_i.addr)
@@ -189,6 +226,27 @@ always_comb begin
           cc_o[1][4:0] = req_i.wdata[4:0];
           cc_we_o[1] = 1'b1;
         end
+
+
+
+	 // start ext_intrpt_tim_reg signals
+
+        32'hd000004: begin
+          tim_val_o = req_i.wdata;
+          tim_val_we_o = 1'b1;
+        end
+		//> > 5000_0008 : control register
+		//> > bit [0] en, default 1 enabled
+		//> > bit [1] sel - from switch-'0' or from programing default 1
+		//> > bit [2] edge - 1 edge 0 level, default 0 level
+		//> > bit [3] start counting - 1 start 0 stop, default 1 start
+        32'hd000008: begin
+          ctrl_o = req_i.wdata;
+          ctrl_we_o = 1'b1;
+        end
+	 // end ext_intrpt_tim_reg signals
+
+
         default: resp_o.error = 1'b1;
       endcase
     end else begin
@@ -345,6 +403,37 @@ always_comb begin
           resp_o.rdata[4:0] = cc_i[1][4:0];
           cc_re_o[1] = 1'b1;
         end
+	  //RTL ver 32 bit 1.000 .next will ver 1.001 will be with start default 0
+
+
+	 // start ext_intrpt_tim_reg signals
+
+        32'hd000000: begin
+          resp_o.rdata = `VER_RTL;
+          ver_reg_re_o = 1'b1;
+        end
+		//> > 5000_0004 load value to timer, 1 is global clock cycle of plic
+        32'hd000004: begin
+          resp_o.rdata = tim_val_i;
+          tim_val_re_o = 1'b1;
+        end
+		//> > 5000_0008 : control register
+		//> > bit [0] en, default 1 enabled
+		//> > bit [1] sel - from switch or from programing default
+		//> > bit [2] edge - 1 edge 0 level, default 0 level
+		//> > bit [3] start counting - 1 start 0 stop, default 1 start
+        32'hd000008: begin
+          resp_o.rdata = ctrl_i;
+          ctrl_re_o = 1'b1;
+        end
+		//> > 5000_000c status register count from 0 to ffff ffff
+        32'hd00000c: begin
+          resp_o.rdata = tim_stat_i;
+          tim_stat_re_o = 1'b1;
+        end
+
+	 // end ext_intrpt_tim_reg signals
+
         default: resp_o.error = 1'b1;
       endcase
     end

@@ -1,3 +1,10 @@
+
+
+`define VER_RTL  32'h0000_1_000
+`define NEXT_VER_RTL  32`h0000_1_001
+`define EXT_INTRPT_TIMER 15
+
+
 module plic_top #(
   parameter int N_SOURCE    = 30,
   parameter int N_TARGET    = 2,
@@ -32,6 +39,66 @@ module plic_top #(
   logic [N_SOURCE-1:0][PRIOW-1:0]    prio_q;
   logic [N_TARGET-1:0][N_SOURCE-1:0] ie_q;
 
+
+
+  logic	[31:0]	ext_intrpt_cnt;
+  logic		ext_intrpt_edg;
+  logic		ext_intrpt_lvl;
+  logic		ext_intrpt_edg_lvl;
+
+  logic		en, sel, edg, strt;
+
+  logic		ext_intrpt_en;
+
+   logic 	[31:0] tim_val_i;
+   logic 	[31:0] tim_val_o;
+   logic 	[31:0] tim_val_q;
+   logic	tim_val_we_o;
+   logic	tim_val_re_o;
+
+   logic 	[31:0] ctrl_i;
+   logic 	[31:0] ctrl_o;
+   logic 	[31:0] ctrl_q;
+   logic	ctrl_we_o;
+   logic	ctrl_re_o;
+
+   logic	ver_reg_re_o;
+
+   logic 	[31:0] tim_stat_i;
+   logic 	[31:0] tim_stat_o;
+   logic 	[31:0] tim_stat_q;
+   logic	tim_stat_we_o;
+   logic	tim_stat_re_o;
+
+
+    assign tim_val_i = tim_val_q;
+    assign ctrl_i = ctrl_q;
+    assign tim_stat_i = tim_stat_q;
+
+
+  // registers
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (~rst_ni) begin
+      tim_val_q <= '0;
+      ctrl_q <= '0;
+      tim_stat_q <= '0;
+    end else begin
+      // source zero is 0
+        tim_val_q <= tim_val_we_o ? tim_val_o : tim_val_q;
+        ctrl_q <= ctrl_we_o ? ctrl_o : ctrl_q;
+        tim_stat_q <= tim_stat_we_o ? tim_stat_o : tim_stat_q;
+
+    end
+  end
+
+always_comb begin
+	 en 	= ctrl_q[0];
+	 //sel 	= ctrl_o[1];
+	 edg 	= ctrl_q[2];
+	 strt 	= ctrl_q[3];
+end
+
+
   always_comb begin
     claim = '0;
     complete = '0;
@@ -47,7 +114,7 @@ module plic_top #(
   ) i_rv_plic_gateway (
     .clk_i,
     .rst_ni,
-    .src(irq_sources_i),
+    .src({irq_sources_i[N_SOURCE-1:`EXT_INTRPT_TIMER+1],ext_intrpt_en,irq_sources_i[`EXT_INTRPT_TIMER-1:0]}),
     .le(le_i),
     .claim(claim),
     .complete(complete),
@@ -103,6 +170,22 @@ module plic_top #(
     .cc_o(complete_id),
     .cc_we_o(complete_we),
     .cc_re_o(claim_re),
+
+    .ctrl_i(ctrl_i),
+    .ctrl_o(ctrl_o),
+    .ctrl_we_o(ctrl_we_o),
+    .ctrl_re_o(ctrl_re_o), // don't care
+    .ver_reg_re_o(ver_reg_re_o),
+    .tim_val_i(tim_val_i),
+    .tim_val_o(tim_val_o),
+    .tim_val_we_o(tim_val_we_o),
+    .tim_val_re_o(tim_val_re_o), // don't care
+    .tim_stat_i(tim_stat_i),
+    .tim_stat_o(tim_stat_o),
+    .tim_stat_we_o(tim_stat_we_o),
+    .tim_stat_re_o(tim_stat_re_o),
+
+
     .req_i,
     .resp_o
   );
@@ -135,4 +218,64 @@ module plic_top #(
 
     end
   end
+
+
+// muxes , select the edge or level after it is enabled or not and
+// than select value from switch
+
+always @(posedge clk_i or negedge rst_ni)
+ begin
+	if (!rst_ni)
+	 begin
+		ext_intrpt_en		<= 1'b0;
+		ext_intrpt_edg_lvl	<= 1'b0;
+	 end
+	else
+	 begin
+		//ext_intrpt_sel		<= sel	? ext_intrpt_en 		: 1'b1;
+		// Yuri asked to cancel this option of switch
+		// I didn't see yet where the switch is located
+		//ext_intrpt_sel		<= sel	? ext_intrpt_en 		: ext_intrpt_switch;
+		ext_intrpt_en 		<= en 	? ext_intrpt_edg_lvl 	: '0;
+		ext_intrpt_edg_lvl 	<= edg 	? ext_intrpt_edg 		: ext_intrpt_lvl;
+	 end
+ end
+
+
+
+
+always @(posedge clk_i or negedge rst_ni)
+ begin
+	if (!rst_ni)
+	 begin
+		ext_intrpt_cnt 		<= '0;
+		ext_intrpt_edg		<= 1'b0;
+		ext_intrpt_lvl		<= 1'b0;
+	 end
+	else
+	  begin
+		if (strt)
+		  begin
+			if (ext_intrpt_cnt == tim_val_q)
+			  begin
+				ext_intrpt_cnt 		<= '0;
+				ext_intrpt_edg		<= 1'b1;
+				ext_intrpt_lvl		<= 1'b1;
+			  end
+			else
+			  begin
+				ext_intrpt_cnt 		<= ext_intrpt_cnt+1;
+				ext_intrpt_edg		<= 1'b0;
+				ext_intrpt_lvl		<= ext_intrpt_lvl;
+			  end
+		  end
+		else
+		 begin
+				ext_intrpt_cnt 		<= tim_val_o;
+				ext_intrpt_lvl		<= 1'b0;
+				ext_intrpt_edg		<= 1'b0;
+		 end
+       end
+  end
+
 endmodule
